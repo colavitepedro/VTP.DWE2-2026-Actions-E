@@ -109,7 +109,7 @@ main {
     justify-content: center;
     background:
         linear-gradient(rgba(20, 25, 34, 0.68), rgba(20, 25, 34, 0.72)),
-        url("../img/banner.svg") center / cover no-repeat;
+        url("../img/banner-home.svg") center / cover no-repeat;
     text-align: center;
 }
 
