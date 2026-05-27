@@ -4,7 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>@yield('title')</title>
-    <link rel="stylesheet" href="{{ asset('css/styles.css') }}">
+    @php
+        $stylePath = public_path('css/styles.css');
+        $styleVersion = file_exists($stylePath) ? filemtime($stylePath) : time();
+    @endphp
+    <link rel="stylesheet" href="{{ asset('css/styles.css') }}?v={{ $styleVersion }}">
 </head>
 <body>
 
