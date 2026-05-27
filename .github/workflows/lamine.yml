@@ -1,0 +1,207 @@
+name: Deploy Laravel to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ec2
+  cancel-in-progress: true
+
+env:
+  EC2_HOST: ${{ secrets.EC2_HOST || vars.EC2_HOST || '32.194.241.171' }}
+  EC2_USER: ${{ secrets.EC2_USER || vars.EC2_USER || 'ubuntu' }}
+  DEPLOY_PATH: ${{ vars.EC2_DEPLOY_PATH || '/var/www/html/hdcevents' }}
+  APP_NAME: ${{ vars.APP_NAME || 'HDC_Events' }}
+  APP_URL: ${{ vars.APP_URL || secrets.APP_URL || '' }}
+  DB_DATABASE: ${{ vars.DB_DATABASE || 'hdcevents' }}
+  DB_USERNAME: ${{ vars.DB_USERNAME || 'laraveluser' }}
+  DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout the files
+        uses: actions/checkout@v4
+
+      - name: Prepare EC2 server
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          DEPLOY_PATH: ${{ env.DEPLOY_PATH }}
+          EC2_USER: ${{ env.EC2_USER }}
+        with:
+          host: ${{ env.EC2_HOST }}
+          username: ${{ env.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: DEPLOY_PATH,EC2_USER
+          script: |
+            set -euo pipefail
+
+            sudo apt-get update
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common
+            sudo add-apt-repository -y universe
+            sudo apt-get update
+
+            echo "phpmyadmin phpmyadmin/dbconfig-install boolean false" | sudo debconf-set-selections
+            echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect apache2" | sudo debconf-set-selections
+
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+              apache2 mysql-server composer unzip zip git curl rsync \
+              php php-cli php-common libapache2-mod-php \
+              php-mysql php-xml php-curl php-zip php-bcmath php-mbstring php-gd php-intl \
+              phpmyadmin
+
+            sudo systemctl enable apache2
+            sudo systemctl start apache2
+            sudo systemctl enable mysql
+            sudo systemctl start mysql
+            sudo a2enmod rewrite
+            sudo a2enconf phpmyadmin || true
+
+            sudo mkdir -p \
+              "$DEPLOY_PATH" \
+              "$DEPLOY_PATH/storage/framework/cache/data" \
+              "$DEPLOY_PATH/storage/framework/sessions" \
+              "$DEPLOY_PATH/storage/framework/views" \
+              "$DEPLOY_PATH/bootstrap/cache" \
+              "$DEPLOY_PATH/public/img/events"
+
+            sudo chown -R "$EC2_USER":www-data "$DEPLOY_PATH"
+            sudo chmod -R ug+rwx "$DEPLOY_PATH"
+
+      - name: Sync project files to EC2
+        uses: easingthemes/ssh-deploy@v5.1.1
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+          REMOTE_HOST: ${{ env.EC2_HOST }}
+          REMOTE_USER: ${{ env.EC2_USER }}
+          SOURCE: "./"
+          TARGET: "${{ env.DEPLOY_PATH }}/"
+          ARGS: "-rlgoDzvc --delete"
+          EXCLUDE: "/.git/, /.github/, /.env, /vendor/, /node_modules/, /bootstrap/cache/*.php, /storage/logs/, /storage/framework/cache/, /storage/framework/sessions/, /storage/framework/views/, /public/img/events/"
+
+      - name: Finish Laravel deployment
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          DEPLOY_PATH: ${{ env.DEPLOY_PATH }}
+          EC2_HOST: ${{ env.EC2_HOST }}
+          EC2_USER: ${{ env.EC2_USER }}
+          APP_NAME: ${{ env.APP_NAME }}
+          APP_URL: ${{ env.APP_URL }}
+          DB_DATABASE: ${{ env.DB_DATABASE }}
+          DB_USERNAME: ${{ env.DB_USERNAME }}
+          DB_PASSWORD: ${{ env.DB_PASSWORD }}
+        with:
+          host: ${{ env.EC2_HOST }}
+          username: ${{ env.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          envs: DEPLOY_PATH,EC2_HOST,EC2_USER,APP_NAME,APP_URL,DB_DATABASE,DB_USERNAME,DB_PASSWORD
+          script: |
+            set -euo pipefail
+
+            cd "$DEPLOY_PATH"
+
+            if [ ! -f .env.example ]; then
+              echo ".env.example was not deployed. Make sure it is tracked in git."
+              exit 1
+            fi
+
+            if [ ! -f .env ]; then
+              cp .env.example .env
+            fi
+
+            set_env() {
+              KEY="$1"
+              VALUE="$2"
+              ESCAPED_VALUE="$(printf '%s' "$VALUE" | sed -e 's/[\/&]/\\&/g')"
+
+              if grep -q "^${KEY}=" .env; then
+                sed -i "s/^${KEY}=.*/${KEY}=${ESCAPED_VALUE}/g" .env
+              else
+                printf '%s=%s\n' "$KEY" "$VALUE" >> .env
+              fi
+            }
+
+            if [ -z "${APP_URL:-}" ]; then
+              APP_URL="http://${EC2_HOST}"
+            fi
+
+            if [ -z "${DB_PASSWORD:-}" ]; then
+              echo "GitHub secret DB_PASSWORD is required."
+              exit 1
+            fi
+
+            set_env APP_NAME "$APP_NAME"
+            set_env APP_ENV production
+            set_env APP_DEBUG false
+            set_env APP_URL "$APP_URL"
+            set_env DB_CONNECTION mysql
+            set_env DB_HOST 127.0.0.1
+            set_env DB_PORT 3306
+            set_env DB_DATABASE "$DB_DATABASE"
+            set_env DB_USERNAME "$DB_USERNAME"
+            set_env DB_PASSWORD "$DB_PASSWORD"
+
+            DB_DATABASE_SQL="$(printf '%s' "$DB_DATABASE" | sed 's/`/``/g')"
+            DB_USERNAME_SQL="$(printf '%s' "$DB_USERNAME" | sed "s/'/''/g")"
+            DB_PASSWORD_SQL="$(printf '%s' "$DB_PASSWORD" | sed "s/'/''/g")"
+
+            sudo mysql <<SQL
+            CREATE DATABASE IF NOT EXISTS \`${DB_DATABASE_SQL}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            CREATE USER IF NOT EXISTS '${DB_USERNAME_SQL}'@'localhost' IDENTIFIED BY '${DB_PASSWORD_SQL}';
+            ALTER USER '${DB_USERNAME_SQL}'@'localhost' IDENTIFIED BY '${DB_PASSWORD_SQL}';
+            GRANT ALL PRIVILEGES ON \`${DB_DATABASE_SQL}\`.* TO '${DB_USERNAME_SQL}'@'localhost';
+            FLUSH PRIVILEGES;
+            SQL
+
+            composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+
+            if ! grep -q '^APP_KEY=base64:' .env; then
+              php artisan key:generate --force
+            fi
+
+            php artisan config:clear
+            php artisan cache:clear
+            php artisan route:clear
+            php artisan view:clear
+            php artisan optimize:clear
+
+            php artisan migrate --force
+            php artisan storage:link || true
+            php artisan view:cache
+
+            sudo mkdir -p storage/framework/cache/data storage/framework/sessions storage/framework/views bootstrap/cache public/img/events
+
+            sudo chown -R "$EC2_USER":www-data "$DEPLOY_PATH"
+            sudo chmod -R 775 storage bootstrap/cache public/img/events
+
+            SERVER_NAME="$(printf '%s' "$APP_URL" | sed -E 's#^https?://([^/:]+).*#\1#')"
+            if [ -z "$SERVER_NAME" ] || [ "$SERVER_NAME" = "$APP_URL" ]; then
+              SERVER_NAME="$EC2_HOST"
+            fi
+
+            sudo tee /etc/apache2/sites-available/hdcevents.conf >/dev/null <<APACHE
+            <VirtualHost *:80>
+                ServerName ${SERVER_NAME}
+                DocumentRoot ${DEPLOY_PATH}/public
+
+                <Directory ${DEPLOY_PATH}/public>
+                    AllowOverride All
+                    Require all granted
+                </Directory>
+
+                ErrorLog \${APACHE_LOG_DIR}/hdcevents-error.log
+                CustomLog \${APACHE_LOG_DIR}/hdcevents-access.log combined
+            </VirtualHost>
+            APACHE
+
+            sudo a2dissite 000-default.conf || true
+            sudo a2ensite hdcevents.conf
+            sudo a2enconf phpmyadmin || true
+            sudo systemctl reload apache2

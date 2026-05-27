@@ -1,0 +1,127 @@
+LINKS DE TESTE NA EC2
+
+Aplicacao:
+http://32.194.241.171/
+
+Home:
+http://32.194.241.171/
+
+Criar evento:
+http://32.194.241.171/events/create
+
+Detalhes de evento exemplo:
+http://32.194.241.171/events/1
+
+Contato:
+http://32.194.241.171/contact
+
+Produtos:
+http://32.194.241.171/products
+
+Busca em produtos:
+http://32.194.241.171/products?search=teste
+
+
+PHPMYADMIN NA EC2
+
+Link:
+http://32.194.241.171/phpmyadmin/
+
+Usuario:
+laraveluser
+
+Senha:
+usar o valor cadastrado no GitHub Secret DB_PASSWORD
+
+Banco:
+hdcevents
+
+Depois de logar:
+clicar em hdcevents > events
+
+ATENCAO:
+o usuario correto e laraveluser
+nao digitar lavareluser
+
+
+CONFIGURACOES DO DEPLOY
+
+Repositorio:
+https://github.com/colavitepedro/VTP.DWE2-2026-Actions-E.git
+
+EC2_HOST:
+32.194.241.171
+
+EC2_USER:
+ubuntu
+
+Deploy path:
+/var/www/html/hdcevents
+
+APP_URL:
+http://32.194.241.171
+
+DB_CONNECTION:
+mysql
+
+DB_HOST:
+127.0.0.1
+
+DB_PORT:
+3306
+
+DB_DATABASE:
+hdcevents
+
+DB_USERNAME:
+laraveluser
+
+DB_PASSWORD:
+usar o valor cadastrado no GitHub Secret DB_PASSWORD
+
+
+COMANDOS PARA CONFERIR NA EC2
+
+Entrar na EC2:
+ssh ubuntu@32.194.241.171
+
+Ir para o projeto:
+cd /var/www/html/hdcevents
+
+Status dos servicos:
+sudo systemctl status apache2
+sudo systemctl status mysql
+
+Rotas Laravel:
+php artisan route:list
+
+Status das migrations:
+php artisan migrate:status
+
+Consultar eventos no MySQL:
+MYSQL_PWD='COLOCAR_AQUI_O_VALOR_DO_SECRET_DB_PASSWORD' mysql -ularaveluser -h127.0.0.1 hdcevents -e "SELECT id, title, city, date, image, items FROM events;"
+
+
+GITHUB ACTIONS
+
+O deploy roda automaticamente quando fizer push na branch main.
+Tambem da para rodar manualmente em:
+https://github.com/colavitepedro/VTP.DWE2-2026-Actions-E/actions/workflows/lamine.yml
+
+Secrets necessarios:
+EC2_SSH_KEY
+DB_PASSWORD
+
+Variables configuradas:
+EC2_HOST=32.194.241.171
+EC2_USER=ubuntu
+EC2_DEPLOY_PATH=/var/www/html/hdcevents
+APP_NAME=HDC_Events
+APP_URL=http://32.194.241.171
+DB_DATABASE=hdcevents
+DB_USERNAME=laraveluser
+
+OBSERVACOES
+
+Nao rodar migrate:fresh se nao quiser apagar o banco.
+Nao commitar senha real em arquivo publico do repositorio.
