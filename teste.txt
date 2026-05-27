@@ -32,6 +32,7 @@ laraveluser
 
 Senha:
 usar o valor cadastrado no GitHub Secret DB_PASSWORD
+tambem esta salvo localmente em acessos.local.txt, arquivo ignorado pelo Git
 
 Banco:
 hdcevents
@@ -78,6 +79,7 @@ laraveluser
 
 DB_PASSWORD:
 usar o valor cadastrado no GitHub Secret DB_PASSWORD
+tambem esta salvo localmente em acessos.local.txt, arquivo ignorado pelo Git
 
 
 COMANDOS PARA CONFERIR NA EC2
